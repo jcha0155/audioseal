@@ -56,10 +56,54 @@ class MsgProcessor(torch.nn.Module):
         hidden = hidden + msg_aux  # -> b x h x t/f
         return hidden
 
+import torch
+
+def compute_rms(audio: torch.Tensor, frame_size: int = 1024, hop_size: int = 512) -> torch.Tensor:
+    """
+    Compute the RMS (loudness) of the audio signal in overlapping frames.
+    Args:
+        audio: torch.Tensor, shape: (batch, samples)
+        frame_size: size of each analysis window
+        hop_size: hop between successive windows
+    Returns:
+        rms_values: torch.Tensor, shape: (batch, frames), loudness of each frame
+    """
+    # Calculate the number of frames
+    num_frames = (audio.size(1) - frame_size) // hop_size + 1
+    rms_values = torch.zeros(audio.size(0), num_frames, device=audio.device)
+    
+    # Iterate through each frame and calculate RMS
+    for i in range(num_frames):
+        frame_start = i * hop_size
+        frame_end = frame_start + frame_size
+        frame = audio[:, frame_start:frame_end]
+        rms = torch.sqrt(torch.mean(frame ** 2, dim=1))
+        rms_values[:, i] = rms
+    
+    return rms_values
+
+def compute_adaptive_alpha(rms_values: torch.Tensor, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
+    """
+    Compute adaptive alpha values based on the loudness (RMS).
+    Args:
+        rms_values: torch.Tensor, shape: (batch, frames), RMS loudness values
+        min_alpha: Minimum alpha (watermark strength) for quiet sections
+        max_alpha: Maximum alpha for loud sections
+    Returns:
+        alpha_values: torch.Tensor, shape: (batch, frames), adaptive alpha values
+    """
+    # Normalize the RMS values to a range between 0 and 1
+    normalized_rms = (rms_values - rms_values.min(dim=1, keepdim=True)[0]) / (
+        rms_values.max(dim=1, keepdim=True)[0] - rms_values.min(dim=1, keepdim=True)[0] + 1e-6
+    )
+    
+    # Scale normalized RMS to range [min_alpha, max_alpha]
+    alpha_values = min_alpha + normalized_rms * (max_alpha - min_alpha)
+    return alpha_values
 
 class AudioSealWM(torch.nn.Module):
     """
-    Generate watermarking for a given audio signal
+    Generate watermarking for a given audio signal with adaptive alpha based on loudness.
     """
 
     def __init__(
@@ -71,7 +115,6 @@ class AudioSealWM(torch.nn.Module):
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
-        # The build should take care of validating the dimensions between component
         self.msg_processor = msg_processor
         self._message: Optional[torch.Tensor] = None
 
@@ -135,14 +178,45 @@ class AudioSealWM(torch.nn.Module):
         x: torch.Tensor,
         sample_rate: Optional[int] = None,
         message: Optional[torch.Tensor] = None,
-        alpha: float = 1.0,
+        frame_size: int = 1024,
+        hop_size: int = 512,
+        min_alpha: float = 0.5,
+        max_alpha: float = 1.5,
     ) -> torch.Tensor:
-        """Apply the watermarking to the audio signal x with a tune-down ratio (default 1.0)"""
+        """
+        Apply adaptive watermarking to the audio signal x with dynamic alpha values.
+        Args:
+            x: torch.Tensor, the input audio signal
+            sample_rate: optional, the sample rate of the audio
+            message: optional, the secret message to embed
+            frame_size: frame size for RMS calculation
+            hop_size: hop size for RMS calculation
+            min_alpha: minimum alpha value for quiet sections
+            max_alpha: maximum alpha value for loud sections
+        Returns:
+            watermarked_audio: torch.Tensor, the watermarked audio signal
+        """
         if sample_rate is None:
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
+
+        # Step 1: Compute RMS values for adaptive alpha calculation
+        rms_values = compute_rms(x, frame_size=frame_size, hop_size=hop_size)
+        adaptive_alpha = compute_adaptive_alpha(rms_values, min_alpha=min_alpha, max_alpha=max_alpha)
+
+        # Step 2: Stretch adaptive alpha to match the length of the audio signal
+        num_frames = adaptive_alpha.size(1)
+        stretched_alpha = torch.repeat_interleave(adaptive_alpha, hop_size, dim=1)
+        stretched_alpha = stretched_alpha[:, :x.size(1)]  # Trim to match the audio length
+
+        # Step 3: Get the watermark signal
         wm = self.get_watermark(x, sample_rate=sample_rate, message=message)
-        return x + alpha * wm
+
+        # Step 4: Apply watermark using the adaptive alpha values
+        watermarked_audio = x + stretched_alpha.unsqueeze(1) * wm
+
+        return watermarked_audio
+
 
 
 class AudioSealDetector(torch.nn.Module):
