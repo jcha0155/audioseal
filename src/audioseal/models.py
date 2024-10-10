@@ -9,7 +9,7 @@ import librosa
 import numpy as np
 import torch
 
-from content.audioseal.src.audioseal.libs.audiocraft.modules.seanet import SEANetEncoderKeepDimension
+from audioseal.libs.audiocraft.modules.seanet import SEANetEncoderKeepDimension
 
 logger = logging.getLogger("Audioseal")
 
