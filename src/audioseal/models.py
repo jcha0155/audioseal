@@ -3,6 +3,7 @@
 #
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+
 import logging
 from typing import Optional, Tuple
 import librosa
@@ -80,7 +81,7 @@ class AudioSealWM(torch.nn.Module):
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
         if sample_rate != 16000:
-            x = torch.tensor(librosa.resample(x.cpu().numpy(), orig_sr=sample_rate, target_sr=16000)).to(x.device)
+            x = torch.tensor(librosa.resample(x.cpu().detach().numpy(), orig_sr=sample_rate, target_sr=16000)).to(x.device)
         hidden = self.encoder(x)
 
         if self.msg_processor is not None:
@@ -97,8 +98,7 @@ class AudioSealWM(torch.nn.Module):
         watermark = self.decoder(hidden)
 
         if sample_rate != 16000:
-            watermark = torch.tensor(librosa.resample(watermark.cpu().numpy(), orig_sr=16000, target_sr=sample_rate)).to(watermark.device)
-
+            watermark = torch.tensor(librosa.resample(watermark.cpu().detach().numpy(), orig_sr=16000, target_sr=sample_rate)).to(watermark.device)
 
         return watermark[..., :length]
 
@@ -150,7 +150,7 @@ class AudioSealDetector(torch.nn.Module):
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
         if sample_rate != 16000:
-            x = torch.tensor(librosa.resample(x.cpu().numpy(), orig_sr=sample_rate, target_sr=16000)).to(x.device)
+            x = torch.tensor(librosa.resample(x.cpu().detach().numpy(), orig_sr=sample_rate, target_sr=16000)).to(x.device)
         result = self.detector(x)
         result[:, :2, :] = torch.softmax(result[:, :2, :], dim=1)
         message = self.decode_message(result[:, 2:, :])
