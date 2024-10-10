@@ -81,7 +81,7 @@ class AudioSealWM(torch.nn.Module):
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
         if sample_rate != 16000:
-            x_np = x.cpu().numpy()  # Directly convert to NumPy array
+            x_np = x.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
             resampled_x = librosa.resample(x_np, orig_sr=sample_rate, target_sr=16000)
             x = torch.tensor(resampled_x, device=x.device)
         hidden = self.encoder(x)
@@ -100,9 +100,9 @@ class AudioSealWM(torch.nn.Module):
         watermark = self.decoder(hidden)
 
         if sample_rate != 16000:
-            watermark_np = watermark.cpu().numpy()  # Directly convert to NumPy array
+            watermark_np = watermark.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
             resampled_watermark = librosa.resample(watermark_np, orig_sr=16000, target_sr=sample_rate)
-            watermark = torch.from_numpy(resampled_watermark).to(watermark.device)
+            watermark = torch.tensor(resampled_watermark, device=watermark.device)
 
         return watermark[..., :length]
 
@@ -154,7 +154,7 @@ class AudioSealDetector(torch.nn.Module):
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
         if sample_rate != 16000:
-            x_np = x.cpu().numpy()  # Directly convert to NumPy array
+            x_np = x.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
             resampled_x = librosa.resample(x_np, orig_sr=sample_rate, target_sr=16000)
             x = torch.tensor(resampled_x, device=x.device)
         result = self.detector(x)
