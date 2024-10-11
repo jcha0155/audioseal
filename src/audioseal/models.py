@@ -146,6 +146,7 @@ class AudioSealDetector(torch.nn.Module):
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
         result, message = self.forward(x, sample_rate=sample_rate)
+        print("decode")
         detected = (torch.count_nonzero(torch.gt(result[:, 1, :], 0.5)) / result.shape[-1])
         detect_prob = detected.cpu().item()
         message = torch.gt(message, message_threshold).int()
