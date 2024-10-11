@@ -112,6 +112,7 @@ class AudioSealWM(torch.nn.Module):
             watermark_np = watermark.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
             resampled_watermark = librosa.resample(watermark_np, orig_sr=16000, target_sr=sample_rate)
             watermark = torch.tensor(resampled_watermark, device=watermark.device)
+        print("hi its get watermark")
 
         return watermark[..., :length]
 
