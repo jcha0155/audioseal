@@ -66,6 +66,8 @@ class AudioSealWM(torch.nn.Module):
         self.decoder = decoder
         self.msg_processor = msg_processor
         self._message: Optional[torch.Tensor] = None
+        self._original_payload: Optional[torch.Tensor] = None
+
 
     @property
     def message(self) -> Optional[torch.Tensor]:
@@ -90,15 +92,16 @@ class AudioSealWM(torch.nn.Module):
             if message is None:
                 if self.message is None:
                     message = torch.randint(0, 2, (x.shape[0], self.msg_processor.nbits), device=x.device)
-                    self._original_payload = message
+                    
                 else:
                     message = self.message.to(device=x.device)
-                    self._original_payload = self.message
+                   
             else:
                 message = message.to(device=x.device)
-                self._original_payload = message
+                
 
             hidden = self.msg_processor(hidden, message)
+            self._original_payload = message
 
         watermark = self.decoder(hidden)
 
