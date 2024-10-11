@@ -123,7 +123,7 @@ class AudioSealWM(torch.nn.Module):
 
         energy_values = compute_stft_energy(x, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
         adaptive_alpha = compute_adaptive_alpha_librosa(energy_values, min_alpha=min_alpha, max_alpha=max_alpha)
-
+        print("hi")
         num_frames = adaptive_alpha.size(1)
         stretched_alpha = torch.repeat_interleave(adaptive_alpha, hop_length, dim=1)
         stretched_alpha = stretched_alpha[:, :x.size(1)]
