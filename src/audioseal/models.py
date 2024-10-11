@@ -90,10 +90,13 @@ class AudioSealWM(torch.nn.Module):
             if message is None:
                 if self.message is None:
                     message = torch.randint(0, 2, (x.shape[0], self.msg_processor.nbits), device=x.device)
+                    self._original_payload = message
                 else:
                     message = self.message.to(device=x.device)
+                    self._original_payload = self.message
             else:
                 message = message.to(device=x.device)
+                self._original_payload = message
 
             hidden = self.msg_processor(hidden, message)
 
@@ -105,6 +108,9 @@ class AudioSealWM(torch.nn.Module):
             watermark = torch.tensor(resampled_watermark, device=watermark.device)
 
         return watermark[..., :length]
+
+    def get_original_payload(self) -> Optional[torch.Tensor]:
+        return self._original_payload  # Method to retrieve the stored payload Step 2: Use the Modified Class
 
     def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
                 n_fft: int = 2048, hop_length: int = 512, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
