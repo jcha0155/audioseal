@@ -1,3 +1,9 @@
+# Copyright (c) Meta Platforms, Inc. and affiliates.
+# All rights reserved.
+#
+# This source code is licensed under the license found in the
+# LICENSE file in the root directory of this source tree.
+
 import logging
 from typing import Optional, Tuple
 import librosa
@@ -79,8 +85,7 @@ class AudioSealWM(torch.nn.Module):
 
     def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
                 n_fft: int = 2048, hop_length: int = 512, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
-        print("Forward method called!")  # Debugging print statement
-        
+        print("Forward method called!")  # This should always print if forward is being executed
         if sample_rate is None:
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
@@ -111,22 +116,20 @@ class AudioSealWM(torch.nn.Module):
             resampled_watermark = librosa.resample(watermark_np, orig_sr=16000, target_sr=sample_rate)
             watermark = torch.tensor(resampled_watermark, device=watermark.device)
 
-        # Print tensor shapes to debug the mismatch issue
-        print(f"x shape: {x.shape}")
-        print(f"watermark shape: {watermark.shape}")
-
         energy_values = compute_stft_energy(x, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
         adaptive_alpha = compute_adaptive_alpha_librosa(energy_values, min_alpha=min_alpha, max_alpha=max_alpha)
 
+        # Adjust stretched_alpha to match the dimensions of watermark
         num_frames = adaptive_alpha.size(1)
         stretched_alpha = torch.repeat_interleave(adaptive_alpha, hop_length, dim=1)
         stretched_alpha = stretched_alpha[:, :x.size(1)]
+        
+        # Make sure dimensions align
+        if stretched_alpha.dim() < watermark.dim():
+            stretched_alpha = stretched_alpha.unsqueeze(-1)  # Add extra dimension
 
-        # Reshape stretched_alpha to match the dimensions of watermark
-        stretched_alpha = stretched_alpha.unsqueeze(1).expand_as(watermark)
-
-        # Print stretched_alpha shape for debugging
-        print(f"stretched_alpha shape (after expanding): {stretched_alpha.shape}")
+        stretched_alpha = stretched_alpha.expand_as(watermark)  # Match dimensions
+        print(f"stretched_alpha shape: {stretched_alpha.shape} for debugging")
 
         watermarked_audio = x + stretched_alpha * watermark
 
@@ -142,7 +145,7 @@ class AudioSealDetector(torch.nn.Module):
 
     def detect_watermark(self, x: torch.Tensor, sample_rate: Optional[int] = None, message_threshold: float = 0.5) -> Tuple[float, torch.Tensor]:
         result, message = self.forward(x, sample_rate=sample_rate)
-        print("Forward method in detector called!")  # Debugging print statement
+        print("Forward method in detector called!")
         detected = (torch.count_nonzero(torch.gt(result[:, 1, :], 0.5)) / result.shape[-1])
         detect_prob = detected.cpu().item()
         message = torch.gt(message, message_threshold).int()
