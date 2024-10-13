@@ -1,9 +1,3 @@
-# Copyright (c) Meta Platforms, Inc. and affiliates.
-# All rights reserved.
-#
-# This source code is licensed under the license found in the
-# LICENSE file in the root directory of this source tree.
-
 import logging
 from typing import Optional, Tuple
 import librosa
@@ -119,20 +113,16 @@ class AudioSealWM(torch.nn.Module):
         energy_values = compute_stft_energy(x, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
         adaptive_alpha = compute_adaptive_alpha_librosa(energy_values, min_alpha=min_alpha, max_alpha=max_alpha)
 
-        # Adjust stretched_alpha to match the dimensions of watermark
         num_frames = adaptive_alpha.size(1)
-        stretched_alpha = torch.repeat_interleave(adaptive_alpha, hop_length, dim=1)
-        stretched_alpha = stretched_alpha[:, :x.size(1)]
-        
-        # Make sure dimensions align
-        if stretched_alpha.dim() < watermark.dim():
-            stretched_alpha = stretched_alpha.unsqueeze(-1)  # Add extra dimension
 
-        stretched_alpha = stretched_alpha.expand_as(watermark)  # Match dimensions
-        print(f"stretched_alpha shape: {stretched_alpha.shape} for debugging")
+        # Expand stretched_alpha to match watermark size
+        stretched_alpha = adaptive_alpha.unsqueeze(1).expand(-1, watermark.size(1), -1)
+        stretched_alpha = torch.repeat_interleave(stretched_alpha, num_frames // stretched_alpha.size(-1), dim=-1)
+
+        # Debugging print to check dimensions after repeating
+        print(f"stretched_alpha shape after repeating: {stretched_alpha.shape}")
 
         watermarked_audio = x + stretched_alpha * watermark
-
         return watermarked_audio
 
 class AudioSealDetector(torch.nn.Module):
@@ -172,4 +162,5 @@ class AudioSealDetector(torch.nn.Module):
         result[:, :2, :] = torch.softmax(result[:, :2, :], dim=1)
         message = self.decode_message(result[:, 2:, :])
         return result[:, :2, :], message
+
 
