@@ -68,7 +68,6 @@ class AudioSealWM(torch.nn.Module):
         self._message: Optional[torch.Tensor] = None
         self._original_payload: Optional[torch.Tensor] = None
 
-
     @property
     def message(self) -> Optional[torch.Tensor]:
         return self._message
@@ -78,30 +77,34 @@ class AudioSealWM(torch.nn.Module):
         self._message = message
 
     def get_original_payload(self) -> Optional[torch.Tensor]:
-        return self._original_payload  # Method to retrieve the stored payload Step 2: Use the Modified Class
+        return self._original_payload
         
     def get_watermark(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None) -> torch.Tensor:
-        length = x.size(-1)
+        # Call the forward method manually here
+        return self.forward(x, sample_rate, message)
+
+    def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
+                n_fft: int = 2048, hop_length: int = 512, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
+        print("Forward method called!")  # This should always print if forward is being executed
         if sample_rate is None:
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
+
         if sample_rate != 16000:
             x_np = x.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
             resampled_x = librosa.resample(x_np, orig_sr=sample_rate, target_sr=16000)
             x = torch.tensor(resampled_x, device=x.device)
+
         hidden = self.encoder(x)
 
         if self.msg_processor is not None:
             if message is None:
                 if self.message is None:
                     message = torch.randint(0, 2, (x.shape[0], self.msg_processor.nbits), device=x.device)
-                    
                 else:
                     message = self.message.to(device=x.device)
-                   
             else:
                 message = message.to(device=x.device)
-                
 
             hidden = self.msg_processor(hidden, message)
             self._original_payload = message
@@ -109,28 +112,18 @@ class AudioSealWM(torch.nn.Module):
         watermark = self.decoder(hidden)
 
         if sample_rate != 16000:
-            watermark_np = watermark.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
+            watermark_np = watermark.detach().cpu().numpy()
             resampled_watermark = librosa.resample(watermark_np, orig_sr=16000, target_sr=sample_rate)
             watermark = torch.tensor(resampled_watermark, device=watermark.device)
-        print("hi its get watermark")
-
-        return watermark[..., :length]
-
-    def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
-                n_fft: int = 2048, hop_length: int = 512, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
-        if sample_rate is None:
-            logger.warning(COMPATIBLE_WARNING)
-            sample_rate = 16_000
 
         energy_values = compute_stft_energy(x, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
         adaptive_alpha = compute_adaptive_alpha_librosa(energy_values, min_alpha=min_alpha, max_alpha=max_alpha)
-        print("hi")
+
         num_frames = adaptive_alpha.size(1)
         stretched_alpha = torch.repeat_interleave(adaptive_alpha, hop_length, dim=1)
         stretched_alpha = stretched_alpha[:, :x.size(1)]
 
-        wm = self.get_watermark(x, sample_rate=sample_rate, message=message)
-        watermarked_audio = x + stretched_alpha.unsqueeze(1) * wm
+        watermarked_audio = x + stretched_alpha.unsqueeze(1) * watermark
 
         return watermarked_audio
 
@@ -143,11 +136,8 @@ class AudioSealDetector(torch.nn.Module):
         self.nbits = nbits
 
     def detect_watermark(self, x: torch.Tensor, sample_rate: Optional[int] = None, message_threshold: float = 0.5) -> Tuple[float, torch.Tensor]:
-        if sample_rate is None:
-            logger.warning(COMPATIBLE_WARNING)
-            sample_rate = 16_000
         result, message = self.forward(x, sample_rate=sample_rate)
-        print("decode")
+        print("Forward method in detector called!")
         detected = (torch.count_nonzero(torch.gt(result[:, 1, :], 0.5)) / result.shape[-1])
         detect_prob = detected.cpu().item()
         message = torch.gt(message, message_threshold).int()
@@ -164,10 +154,12 @@ class AudioSealDetector(torch.nn.Module):
         if sample_rate is None:
             logger.warning(COMPATIBLE_WARNING)
             sample_rate = 16_000
+
         if sample_rate != 16000:
-            x_np = x.detach().cpu().numpy()  # Ensure detached tensor is converted to NumPy array
+            x_np = x.detach().cpu().numpy()
             resampled_x = librosa.resample(x_np, orig_sr=sample_rate, target_sr=16000)
             x = torch.tensor(resampled_x, device=x.device)
+
         result = self.detector(x)
         result[:, :2, :] = torch.softmax(result[:, :2, :], dim=1)
         message = self.decode_message(result[:, 2:, :])
