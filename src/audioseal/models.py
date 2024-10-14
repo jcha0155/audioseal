@@ -71,6 +71,7 @@ class AudioSealWM(torch.nn.Module):
 
     def get_watermark(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Call the forward method manually here
+        print("get_watermark called")
         return self.forward(x, sample_rate, message)
 
     def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
@@ -93,11 +94,12 @@ class AudioSealWM(torch.nn.Module):
         # Iterate over chunks and apply watermarking to each chunk
         for chunk in audio_chunks:
             hidden = self.encoder(chunk.unsqueeze(0))  # Add batch dimension
-
+            print("checkpoint 1")
             if self.msg_processor is not None:
                 if message is None:
                     if self.message is None:
                         message = torch.randint(0, 2, (1, self.msg_processor.nbits), device=chunk.device)
+                        print("checkpoint 2")
                     else:
                         message = self.message.to(device=chunk.device)
                 else:
@@ -114,6 +116,7 @@ class AudioSealWM(torch.nn.Module):
 
         # Recombine the watermarked audio chunks
         watermarked_audio = recombine_audio(wm_audio_list)
+        print("checkpoint 3")
         return watermarked_audio
 
 class AudioSealDetector(torch.nn.Module):
