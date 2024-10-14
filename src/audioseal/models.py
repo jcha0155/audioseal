@@ -98,8 +98,7 @@ class AudioSealWM(torch.nn.Module):
             print(f"Chunk shape before unsqueeze: {chunk.shape}")
             chunk_a = chunk.unsqueeze(0)
             print(f"Chunk shape after unsqueeze: {chunk_a.shape}")
-
-            hidden = self.encoder(chunk.unsqueeze(0))  # Add batch dimension
+            hidden = self.encoder(chunk)  # Add batch dimension
             
             print("checkpoint 1")
             if self.msg_processor is not None:
