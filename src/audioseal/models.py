@@ -87,10 +87,11 @@ class AudioSealWM(torch.nn.Module):
             x = torch.tensor(resampled_x, device=x.device)
 
         # Split the audio into chunks
+        print("checkpoint 0")
         audio_chunks = chunk_audio(x, sample_rate)
-
+        print("checkpoint 0.1")
         wm_audio_list = []  # List to hold watermarked audio chunks
-
+        print("checkpoint 0.2")
         # Iterate over chunks and apply watermarking to each chunk
         for chunk in audio_chunks:
             hidden = self.encoder(chunk.unsqueeze(0))  # Add batch dimension
