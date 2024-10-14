@@ -33,25 +33,21 @@ class MsgProcessor(torch.nn.Module):
         hidden = hidden + msg_aux
         return hidden
 
-def compute_stft_energy(audio: torch.Tensor, sr: int, n_fft: int = 2048, hop_length: int = 512) -> torch.Tensor:
-    batch_size = audio.size(0)
-    energy_values = []
+def chunk_audio(audio_tensor, sample_rate):
+    chunk_length = sample_rate  # Define chunk length as 1 second
+    chunks = []
+    num_samples = audio_tensor.size(1)  # Get the total number of samples in the audio
+    start = 0
 
-    for i in range(batch_size):
-        y = audio[i].cpu().numpy()
-        stft = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
-        frame_energy = torch.tensor(np.sum(stft ** 2, axis=0), device=audio.device)
-        energy_values.append(frame_energy)
-    
-    energy_values = torch.stack(energy_values, dim=0)
-    return energy_values
+    while start < num_samples:
+        end = start + chunk_length  # End of the current chunk
+        chunks.append(audio_tensor[:, start:end])  # Append chunk of audio
+        start = end
 
-def compute_adaptive_alpha_librosa(energy_values: torch.Tensor, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
-    normalized_energy = (energy_values - energy_values.min(dim=1, keepdim=True)[0]) / (
-        energy_values.max(dim=1, keepdim=True)[0] - energy_values.min(dim=1, keepdim=True)[0] + 1e-6
-    )
-    alpha_values = min_alpha + normalized_energy * (max_alpha - min_alpha)
-    return alpha_values
+    return chunks
+
+def recombine_audio(chunks_list):
+    return torch.cat(chunks_list, dim=1)  # Recombine the chunks along the sample dimension
 
 class AudioSealWM(torch.nn.Module):
     def __init__(self, encoder: torch.nn.Module, decoder: torch.nn.Module, msg_processor: Optional[torch.nn.Module] = None):
@@ -72,13 +68,13 @@ class AudioSealWM(torch.nn.Module):
 
     def get_original_payload(self) -> Optional[torch.Tensor]:
         return self._original_payload
-        
+
     def get_watermark(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None) -> torch.Tensor:
         # Call the forward method manually here
         return self.forward(x, sample_rate, message)
 
     def forward(self, x: torch.Tensor, sample_rate: Optional[int] = None, message: Optional[torch.Tensor] = None,
-                n_fft: int = 2048, hop_length: int = 512, min_alpha: float = 0.5, max_alpha: float = 1.5) -> torch.Tensor:
+                n_fft: int = 2048, hop_length: int = 512, alpha_val: float = 1.0) -> torch.Tensor:
         print("Forward method called!")  # This should always print if forward is being executed
         if sample_rate is None:
             logger.warning(COMPATIBLE_WARNING)
@@ -89,43 +85,35 @@ class AudioSealWM(torch.nn.Module):
             resampled_x = librosa.resample(x_np, orig_sr=sample_rate, target_sr=16000)
             x = torch.tensor(resampled_x, device=x.device)
 
-        hidden = self.encoder(x)
+        # Split the audio into chunks
+        audio_chunks = chunk_audio(x, sample_rate)
 
-        if self.msg_processor is not None:
-            if message is None:
-                if self.message is None:
-                    message = torch.randint(0, 2, (x.shape[0], self.msg_processor.nbits), device=x.device)
+        wm_audio_list = []  # List to hold watermarked audio chunks
+
+        # Iterate over chunks and apply watermarking to each chunk
+        for chunk in audio_chunks:
+            hidden = self.encoder(chunk.unsqueeze(0))  # Add batch dimension
+
+            if self.msg_processor is not None:
+                if message is None:
+                    if self.message is None:
+                        message = torch.randint(0, 2, (1, self.msg_processor.nbits), device=chunk.device)
+                    else:
+                        message = self.message.to(device=chunk.device)
                 else:
-                    message = self.message.to(device=x.device)
-            else:
-                message = message.to(device=x.device)
+                    message = message.to(device=chunk.device)
 
-            hidden = self.msg_processor(hidden, message)
-            self._original_payload = message
+                hidden = self.msg_processor(hidden, message)
+                self._original_payload = message
 
-        watermark = self.decoder(hidden)
+            watermark = self.decoder(hidden)  # Decode hidden representation into a watermark
 
-        if sample_rate != 16000:
-            watermark_np = watermark.detach().cpu().numpy()
-            resampled_watermark = librosa.resample(watermark_np, orig_sr=16000, target_sr=sample_rate)
-            watermark = torch.tensor(resampled_watermark, device=watermark.device)
+            # Combine the watermark with the audio chunk using the given alpha value
+            wm_audio_chunk = chunk + alpha_val * watermark.squeeze(0)
+            wm_audio_list.append(wm_audio_chunk)
 
-        energy_values = compute_stft_energy(x, sr=sample_rate, n_fft=n_fft, hop_length=hop_length)
-        adaptive_alpha = compute_adaptive_alpha_librosa(energy_values, min_alpha=min_alpha, max_alpha=max_alpha)
-
-        num_frames = adaptive_alpha.size(1)
-
-        print(f"adaptive_alpha shape before unsqueeze: {adaptive_alpha.shape}")
-
-
-        # Expand stretched_alpha to match watermark size
-        stretched_alpha = adaptive_alpha.unsqueeze(1).expand(-1, 1, -1, -1)
-        
-        print(f"stretched_alpha shape after expand: {stretched_alpha.shape}")
-        stretched_alpha = torch.repeat_interleave(stretched_alpha, num_frames // stretched_alpha.size(-1), dim=-1)
-        # Debugging print to check dimensions after repeating
-        print(f"stretched_alpha shape after repeating: {stretched_alpha.shape}")
-        watermarked_audio = x + stretched_alpha * watermark
+        # Recombine the watermarked audio chunks
+        watermarked_audio = recombine_audio(wm_audio_list)
         return watermarked_audio
 
 class AudioSealDetector(torch.nn.Module):
@@ -165,5 +153,3 @@ class AudioSealDetector(torch.nn.Module):
         result[:, :2, :] = torch.softmax(result[:, :2, :], dim=1)
         message = self.decode_message(result[:, 2:, :])
         return result[:, :2, :], message
-
-
