@@ -115,13 +115,15 @@ class AudioSealWM(torch.nn.Module):
 
         num_frames = adaptive_alpha.size(1)
 
-        # Expand stretched_alpha to match watermark size
-        stretched_alpha = adaptive_alpha.unsqueeze(1).expand(-1, watermark.size(1), -1)
-        stretched_alpha = torch.repeat_interleave(stretched_alpha, num_frames // stretched_alpha.size(-1), dim=-1)
+        print(f"adaptive_alpha shape before unsqueeze: {adaptive_alpha.shape}")
 
+
+        # Expand stretched_alpha to match watermark size
+        stretched_alpha = adaptive_alpha.unsqueeze(1).expand(-1, 1, watermark.size(1), -1)
+        print(f"stretched_alpha shape after expand: {stretched_alpha.shape}")
+        stretched_alpha = torch.repeat_interleave(stretched_alpha, num_frames // stretched_alpha.size(-1), dim=-1)
         # Debugging print to check dimensions after repeating
         print(f"stretched_alpha shape after repeating: {stretched_alpha.shape}")
-
         watermarked_audio = x + stretched_alpha * watermark
         return watermarked_audio
 
