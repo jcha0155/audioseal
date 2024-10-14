@@ -117,7 +117,14 @@ class AudioSealWM(torch.nn.Module):
             watermark = self.decoder(hidden)  # Decode hidden representation into a watermark
 
             # Combine the watermark with the audio chunk using the given alpha value
-            wm_audio_chunk = chunk + alpha_val * watermark.squeeze(0)
+            print(f"chunk shape: {chunk.shape}")
+            print(alpha_val)
+            print(f"watermark shape: {watermark.shape}")
+            # Ensure that watermark matches the chunk length by trimming it
+            if watermark.shape[-1] > chunk.shape[-1]:
+                watermark = watermark[..., :chunk.shape[-1]]  # Trims the watermark to the length of the chunk
+
+            wm_audio_chunk = chunk + alpha_val * watermark
             wm_audio_list.append(wm_audio_chunk)
 
         # Recombine the watermarked audio chunks
