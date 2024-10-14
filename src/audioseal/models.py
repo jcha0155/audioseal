@@ -95,7 +95,12 @@ class AudioSealWM(torch.nn.Module):
         # Iterate over chunks and apply watermarking to each chunk
         for chunk in audio_chunks:
             print("checkpoint 0.3")
+            print(f"Chunk shape before unsqueeze: {chunk.shape}")
+            chunk_a = chunk.unsqueeze(0)
+            print(f"Chunk shape after unsqueeze: {chunk_a.shape}")
+
             hidden = self.encoder(chunk.unsqueeze(0))  # Add batch dimension
+            
             print("checkpoint 1")
             if self.msg_processor is not None:
                 if message is None:
